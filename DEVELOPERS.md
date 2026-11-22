@@ -50,6 +50,7 @@ Credentials are read from environment variables, then `data/.env`, then `.env` i
 | `MATCHBOT_CONFIG` | `config.yaml` in the data dir, else the repo root |
 | `MATCHBOT_LOG_LEVEL` | `INFO` |
 | `MATCHBOT_COMMAND_DELETE_AFTER` | `10` seconds (`0` keeps command replies) |
+| `MATCHBOT_UPDATE_CHECK` | `1`; hourly check for a newer GitHub release, shown in the bot's status (`0` = off) |
 | `MATCHBOT_WATCHDOG_SECONDS` | `300` seconds; the bot exits when its event loop is blocked this long, so Docker restarts it (`0` = off) |
 
 Debug helpers:

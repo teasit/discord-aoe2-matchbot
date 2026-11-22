@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import discord
 from dotenv import load_dotenv
 
@@ -28,6 +29,7 @@ from matchbot.ui import (
     match_summary,
     smurf_gaps,
 )
+from matchbot.version import PROJECT_URL, current_version, is_newer, latest_release
 
 APP_DIR = Path(__file__).resolve().parent.parent
 # Everything the bot writes (database, logs) and optional user files
@@ -59,6 +61,8 @@ COMMAND_DELETE_AFTER_SECONDS = float(
 # The process exits when the event loop has been blocked this long, so the
 # container's restart policy starts it again; 0 disables the watchdog.
 WATCHDOG_SECONDS = float(os.environ.get("MATCHBOT_WATCHDOG_SECONDS", "300"))
+# Checks GitHub for a newer release and shows it in the bot's status; 0 = off.
+UPDATE_CHECK = os.environ.get("MATCHBOT_UPDATE_CHECK", "1") != "0"
 
 
 def find_config_file() -> Path | None:
@@ -83,21 +87,10 @@ COMMAND_DESC = {
     "unban": "Removes a player from the banlist by SteamID64 or Relic Link profile ID.",
 }
 PLAYER_ID_DESC = "SteamID64 (17 digits) or Relic Link profile ID"
-# Appended to the application description (the bot's "About Me") on startup,
-# so every instance of the bot links back to the project.
-PROJECT_URL = "https://github.com/teasit/discord-aoe2-matchbot"
+# PROJECT_URL (matchbot.version) is appended to the application description
+# (the bot's "About Me") on startup, so every instance links back to the project.
 APP_DESCRIPTION_MAX_LENGTH = 400
 STEAM_ID64_DIGITS = 17
-
-
-class AoeMatchBotActivity(discord.Activity):
-    def __init__(self):
-        discord.Activity.__init__(
-            self,
-            application_id=1402418309189603418,
-            type=discord.ActivityType.watching,
-            name="Age of Empires II: Definitive Edition",
-        )
 
 
 @dataclass
@@ -156,6 +149,7 @@ class AoeMatchBot(discord.Client):
     # (aoe2companion rate limit) are edited into the post afterwards.
     QUICKPLAY_STATS_WAIT_SECONDS = 3
     HEARTBEAT_INTERVAL_SECONDS = 30
+    UPDATE_CHECK_INTERVAL_SECONDS = 60 * 60
 
     database_file: Path | None
     database: AoeMatchBotDatabase | None
@@ -166,6 +160,7 @@ class AoeMatchBot(discord.Client):
     aoe2companion: Aoe2CompanionClient
     lobby_scanner: LobbyScanner | None
     authentication_task: asyncio.Task | None
+    update_check_task: asyncio.Task | None
     tree: discord.app_commands.CommandTree | None
 
     def __init__(
@@ -177,9 +172,15 @@ class AoeMatchBot(discord.Client):
         discord.Client.__init__(
             self,
             intents=discord.Intents.default(),
-            activity=AoeMatchBotActivity(),
+            activity=discord.CustomActivity(name=f"v{current_version()}"),
         )
         self.logger = logging.getLogger("discord")
+        self.version = current_version()
+        # Newest GitHub release tag, once the update check found one.
+        self.latest_release: str | None = None
+        self.update_check_task = None
+        self._http: aiohttp.ClientSession | None = None
+        self.logger.info(f"discord-aoe2-matchbot v{self.version}")
         self.analysis_task = None
         self.rlink_client = rlink_client
         self.lobby_scanner = LobbyScanner(rlink_client)
@@ -294,11 +295,45 @@ class AoeMatchBot(discord.Client):
         self.logger.info(f"{self.user} ready.")
         await self.tree.sync()
         await self._ensure_project_link()
-        await self.change_presence(
-            status=discord.Status.online, activity=AoeMatchBotActivity()
-        )
+        await self._update_presence()
         await self._restart_authentication_task()
         await self._restart_analysis_task()
+        if UPDATE_CHECK and (
+            self.update_check_task is None or self.update_check_task.done()
+        ):
+            self.update_check_task = self.loop.create_task(self._update_check_task())
+
+    def _status_text(self) -> str:
+        """ "v1.0.0", or "v1.0.0 (v1.0.1 available)" when a newer release exists."""
+        text = f"v{self.version}"
+        if self.latest_release and is_newer(self.latest_release, self.version):
+            text += f" ({self.latest_release} available)"
+        return text
+
+    async def _update_presence(self):
+        await self.change_presence(
+            status=discord.Status.online,
+            activity=discord.CustomActivity(name=self._status_text()),
+        )
+
+    async def _update_check_task(self):
+        """Looks up the newest GitHub release every UPDATE_CHECK_INTERVAL_SECONDS
+        and shows it in the status when it is newer than the running version."""
+        while True:
+            if self._http is None or self._http.closed:
+                self._http = aiohttp.ClientSession()
+            latest = await latest_release(self._http, self.logger)
+            if latest and latest != self.latest_release:
+                self.latest_release = latest
+                if is_newer(latest, self.version):
+                    self.logger.info(
+                        f"Update available: {latest} (running v{self.version})"
+                    )
+                try:
+                    await self._update_presence()
+                except Exception as e:
+                    self.logger.warning(f"Could not update the status: {e!r}")
+            await asyncio.sleep(self.UPDATE_CHECK_INTERVAL_SECONDS)
 
     async def _ensure_project_link(self):
         """Appends PROJECT_URL to the bot's "About Me" unless it is already there."""
@@ -316,9 +351,7 @@ class AoeMatchBot(discord.Client):
 
     async def on_resumed(self):
         self.logger.info(f"{self.user} resumed.")
-        await self.change_presence(
-            status=discord.Status.online, activity=AoeMatchBotActivity()
-        )
+        await self._update_presence()
         await self._restart_authentication_task()
         await self._restart_analysis_task()
 
@@ -326,6 +359,10 @@ class AoeMatchBot(discord.Client):
         await self._save_database()
         await self.rlink_client.close()
         await self.aoe2companion.close()
+        if self.update_check_task:
+            self.update_check_task.cancel()
+        if self._http:
+            await self._http.close()
         await self.rlink_client.logout()
         await discord.Client.close(self)
 

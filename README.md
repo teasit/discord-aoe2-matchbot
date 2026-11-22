@@ -51,7 +51,7 @@ Discord bot that posts Age of Empires II: DE matches of tracked players as soon 
          - ./:/app/data
    ```
 
-4. Start it with `docker compose up -d`. Logs: `docker logs matchbot`.
+4. Start it with `docker compose up -d`. Logs: `docker logs matchbot`. The bot's status shows its version, plus the newest one when an update is available; update with `docker compose pull && docker compose up -d`.
 
 5. In Discord, run `/join` in the channel for match posts and `/add <player_id>` for each player to track (SteamID64 or Relic Link profile ID).
 
