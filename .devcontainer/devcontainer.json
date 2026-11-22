@@ -1,0 +1,50 @@
+{
+	"name": "MatchBot Dev Container",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"runArgs": [
+		"--env-file",
+		".env"
+	],
+	"remoteUser": "vscode",
+	"updateRemoteUserUID": true,
+	// Run the image's entrypoint (docker-socket-init.sh, as root) instead of
+	// replacing it, so the remote user gets access to the Docker socket.
+	"overrideCommand": false,
+	"mounts": [
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly",
+		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+	],
+	// Host path of the workspace, for bind mounts in `docker run`/compose from inside.
+	"remoteEnv": {
+		"LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+	},
+	"postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
+	"postStartCommand": "bash .devcontainer/postStartCommand.sh",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-azuretools.vscode-docker",
+				"charliermarsh.ruff"
+			],
+			"settings": {
+				"python.analysis.typeCheckingMode": "standard",
+				"python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+				// Use the ruff pinned in uv.lock (installed by `uv sync`), not the
+				// extension's bundled one, so saving formats like `uv run ruff format`.
+				"ruff.importStrategy": "fromEnvironment",
+				"[python]": {
+					"editor.defaultFormatter": "charliermarsh.ruff",
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports.ruff": "explicit",
+						"source.fixAll.ruff": "explicit"
+					}
+				}
+			}
+		}
+	}
+}

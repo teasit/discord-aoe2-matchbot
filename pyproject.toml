@@ -1,0 +1,32 @@
+[project]
+name = "discord-aoe2-matchbot"
+version = "0.1.0"
+description = "Discord bot that posts Age of Empires II: DE matches of tracked players as soon as they are matched"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "discord-py>=2.7.1",
+    "mgz-fast>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "steam[client]>=1.4.4",
+    "zstandard>=0.25.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import sorting, pyupgrade, bugbear, simplify
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+# Line length is left to the formatter; it does not split long strings.
+ignore = ["E501"]

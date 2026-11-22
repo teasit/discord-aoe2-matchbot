@@ -1,0 +1,11 @@
+# Lobby types that are announced when a tracked player is in them:
+#   ranked       Ranked Random Map, 1v1 and team games (incl. console ladders)
+#   quickplay    Unranked Quick Play
+#   empire_wars  Ranked Empire Wars, 1v1 and team games (incl. console ladders)
+#   custom       Custom lobbies, announced once the game starts
+#   other        Any other matchmaking queue (Deathmatch, Battle Royale, event queues)
+# Matchmade games are announced as soon as the players are matched, before the
+# game starts.
+tracked_lobby_types:
+  - ranked
+  - quickplay
