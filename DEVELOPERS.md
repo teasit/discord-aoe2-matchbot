@@ -68,7 +68,7 @@ docker build -t discord-aoe2-matchbot .
 docker run -d --name matchbot -v "$PWD/data:/app/data" discord-aoe2-matchbot
 ```
 
-Put `.env` (and optionally `config.yaml`) into `./data`. CI builds the image for every PR and pushes `ghcr.io/teasit/discord-aoe2-matchbot` on pushes to `main` (`:latest`) and for releases (`:X.Y.Z`, `:X.Y`, `:X`).
+Put `.env` (and optionally `config.yaml`) into `./data`. CI builds the image for every PR and pushes `ghcr.io/teasit/discord-aoe2-matchbot` on pushes to `main` (`:main`) and for releases (`:latest`, `:X.Y.Z`, `:X.Y`, `:X`), so `:latest` is always the newest release.
 
 ## Releases
 

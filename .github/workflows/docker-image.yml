@@ -36,7 +36,7 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    # Pull requests only build the image, pushes to main and tags publish it.
+    # Pull requests only build the image, pushes to main and releases publish it.
     - name: Log in to GitHub Container Registry
       if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
@@ -45,15 +45,20 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    # main -> :latest and :main, release v1.2.3 -> :1.2.3, :1.2 and :1, plus :sha-<commit>
+    # main -> :main, release v1.2.3 (called by release-please.yml, or a
+    # manually pushed v* tag) -> :latest, :1.2.3, :1.2 and :1, plus :sha-<commit>.
+    # :latest is set explicitly only for releases (flavor latest=false stops
+    # metadata-action from adding it on its own).
     - name: Extract image tags and labels
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        flavor: |
+          latest=false
         tags: |
-          type=raw,value=latest,enable={{is_default_branch}}
-          type=ref,event=branch
+          type=raw,value=latest,enable=${{ inputs.ref != '' || startsWith(github.ref, 'refs/tags/v') }}
+          type=raw,value=main,enable=${{ inputs.ref == '' && github.ref == 'refs/heads/main' }}
           type=ref,event=pr
           type=semver,pattern={{version}},value=${{ inputs.ref }}
           type=semver,pattern={{major}}.{{minor}},value=${{ inputs.ref }}
