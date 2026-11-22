@@ -18,6 +18,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
     "ruff>=0.17.1",
 ]
 
@@ -30,3 +32,17 @@ target-version = "py312"
 select = ["E", "W", "F", "I", "UP", "B", "SIM"]
 # Line length is left to the formatter; it does not split long strings.
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Modules are imported as matchbot.* and aoe_matchbot from src/, like the bot.
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # Third-party noise: invalid regex escapes in the steam library, audioop
+    # in discord.py, utcfromtimestamp in protobuf.
+    "ignore::SyntaxWarning",
+    "ignore:'audioop' is deprecated:DeprecationWarning",
+    "ignore:datetime.datetime.utcfromtimestamp:DeprecationWarning",
+]

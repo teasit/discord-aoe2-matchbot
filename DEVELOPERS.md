@@ -77,4 +77,4 @@ Releases are made by [release-please](https://github.com/googleapis/release-plea
 
 ## Conventions
 
-There is no test suite. Linting and formatting use [Ruff](https://docs.astral.sh/ruff/) (config in `pyproject.toml`, installed by `uv sync` as a dev dependency): run `uv run ruff check --fix . && uv run ruff format .` before committing. The devcontainer formats, sorts imports and applies safe fixes on save. Types are checked with Pylance in standard mode.
+Tests live in `tests/` and run with `uv run pytest`; they use fakes for Discord, Steam, Relic Link and aoe2companion, so no credentials or network access are needed. CI runs them for every PR, push to `main` and release, before the Docker image is built. Linting and formatting use [Ruff](https://docs.astral.sh/ruff/) (config in `pyproject.toml`, installed by `uv sync` as a dev dependency): run `uv run ruff check --fix . && uv run ruff format .` before committing. The devcontainer formats, sorts imports and applies safe fixes on save. Types are checked with Pylance in standard mode.

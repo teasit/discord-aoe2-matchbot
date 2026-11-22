@@ -135,6 +135,24 @@ class Announcement:
     state: MatchState = MatchState.MATCHED
 
 
+@dataclass
+class AnalysisState:
+    """What the analysis loop keeps between scans."""
+
+    profile_ids: list[int] = field(default_factory=list)
+    # The tracked Steam IDs profile_ids were looked up for.
+    profile_ids_steam_ids: list[int] = field(default_factory=list)
+    # Lobbies of tracked players that are not posted yet, watched until
+    # they are ready (custom lobbies until they start).
+    pending_match_ids: set[int] = field(default_factory=set)
+    # Matchmade games announced before they started, watched until they
+    # start or a player dodges.
+    unstarted_announcements: dict[int, Announcement] = field(default_factory=dict)
+    # When lobbies of tracked players were first seen, to log how long
+    # they took to be posted.
+    first_seen: dict[int, float] = field(default_factory=dict)
+
+
 class AoeMatchBot(discord.Client):
     MATCH_IDS_ANALYSED_CACHE_LEN = 20
     LOBBY_SCAN_INTERVAL_SECONDS = 3
@@ -401,110 +419,108 @@ class AoeMatchBot(discord.Client):
             await asyncio.sleep(rlink.API_AUTH_RECOMMENDED_INTERVAL)
 
     async def _analysis_task(self):
-        profile_ids: list[int] = []
-        profile_ids_steam_ids: list[int] = []
-        # Custom lobbies of tracked players, watched until they start.
-        pending_match_ids: set[int] = set()
-        # Matchmade games announced before they started, watched until they
-        # start or a player dodges.
-        unstarted_announcements: dict[int, Announcement] = {}
-        # When lobbies of tracked players were first seen, to log how long
-        # they took to be posted.
-        first_seen: dict[int, float] = {}
+        state = AnalysisState()
         while True:
             await asyncio.sleep(self.LOBBY_SCAN_INTERVAL_SECONDS)
-            if not self.database.steam_ids:
-                continue
-            try:
-                if profile_ids_steam_ids != self.database.steam_ids:
-                    profile_ids = await self.rlink_client.find_profiles_by_platform_id(
+            await self._analyse_lobbies(state)
+
+    async def _analyse_lobbies(self, state: AnalysisState):
+        """One scan: finds lobbies of tracked players, posts them once they
+        are ready and updates earlier posts."""
+        if not self.database.steam_ids:
+            return
+        try:
+            if state.profile_ids_steam_ids != self.database.steam_ids:
+                state.profile_ids = (
+                    await self.rlink_client.find_profiles_by_platform_id(
                         self.database.steam_ids
                     )
-                    profile_ids_steam_ids = list(self.database.steam_ids)
-                scan_start = time.monotonic()
-                lobbies = await self.lobby_scanner.scan(
-                    list(pending_match_ids | unstarted_announcements.keys())
                 )
-                scan_seconds = time.monotonic() - scan_start
-                if scan_seconds > self.LOBBY_SCAN_SLOW_SECONDS:
-                    self.logger.warning(f"Lobby scan took {scan_seconds:.1f} s.")
-                else:
-                    self.logger.debug(
-                        f"Lobby scan took {scan_seconds:.1f} s, {len(lobbies)} lobbies."
-                    )
-            except rlink.RelicLinkNotLoggedInError as e:
-                # The failed login itself was already logged.
-                self.logger.debug(str(e))
-                continue
-            except Exception as e:
-                self.logger.error(f"Relic Link error: {e!r}")
-                continue
-
-            lobbies_by_id = {lobby.match_id: lobby for lobby in lobbies}
-            now = time.time()
-            for match_id, seen in list(first_seen.items()):
-                if now - seen > 600:
-                    del first_seen[match_id]
-            # Forget custom lobbies that were closed without starting.
-            pending_match_ids &= lobbies_by_id.keys()
-            await self._update_unstarted_announcements(
-                unstarted_announcements, lobbies_by_id
+                state.profile_ids_steam_ids = list(self.database.steam_ids)
+            scan_start = time.monotonic()
+            lobbies = await self.lobby_scanner.scan(
+                list(state.pending_match_ids | state.unstarted_announcements.keys())
             )
+            scan_seconds = time.monotonic() - scan_start
+            if scan_seconds > self.LOBBY_SCAN_SLOW_SECONDS:
+                self.logger.warning(f"Lobby scan took {scan_seconds:.1f} s.")
+            else:
+                self.logger.debug(
+                    f"Lobby scan took {scan_seconds:.1f} s, {len(lobbies)} lobbies."
+                )
+        except rlink.RelicLinkNotLoggedInError as e:
+            # The failed login itself was already logged.
+            self.logger.debug(str(e))
+            return
+        except Exception as e:
+            self.logger.error(f"Relic Link error: {e!r}")
+            return
 
-            for lobby in lobbies:
-                if lobby.is_queue:
-                    continue
-                if not any(pid in profile_ids for pid in lobby.profile_ids):
-                    continue
-                if lobby.lobby_type not in self.config.tracked_lobby_types:
-                    continue
-                if lobby.match_id in self.database.match_ids_analysed:
-                    pending_match_ids.discard(lobby.match_id)
-                    continue
-                if lobby.match_id not in first_seen:
-                    first_seen[lobby.match_id] = now
-                    self.logger.debug(
-                        f"Lobby {lobby.match_id} of a tracked player first seen "
-                        f"({lobby.description or 'no description'}, "
-                        f"map settled: {lobby.map_settled}, started: {lobby.started})."
-                    )
-                # Matchmade games are announced as soon as the players were
-                # matched and the map is final (until then the lobby carries
-                # a provisional one), custom lobbies only once the game
-                # started.
-                if not (lobby.is_automatch and lobby.map_settled or lobby.started):
-                    pending_match_ids.add(lobby.match_id)
-                    continue
-                pending_match_ids.discard(lobby.match_id)
+        lobbies_by_id = {lobby.match_id: lobby for lobby in lobbies}
+        now = time.time()
+        for match_id, seen in list(state.first_seen.items()):
+            if now - seen > 600:
+                del state.first_seen[match_id]
+        # Forget custom lobbies that were closed without starting.
+        state.pending_match_ids &= lobbies_by_id.keys()
+        await self._update_unstarted_announcements(
+            state.unstarted_announcements, lobbies_by_id
+        )
 
-                try:
-                    match = await self.rlink_client.get_match_from_lobby(lobby)
-                except Exception as e:
-                    self.logger.error(f"Relic Link error: {e}")
-                    continue
-                match.map_name = self.map_names.name(lobby)
-                self.logger.debug(match)
-                await self._cache_match_id(int(match.match_id))
-                try:
-                    announcement = await self._publish_match_analysis(
-                        match, profile_ids
-                    )
-                    seen_seconds = time.time() - first_seen.pop(lobby.match_id, now)
-                    self.logger.info(
-                        f"Match {match.match_id} found "
-                        f"({'started' if lobby.started else 'players matched, not started yet'}, "
-                        f"first seen {seen_seconds:.0f} s before posting), "
-                        f"posted to {len(announcement.messages)} channel(s):\n"
-                        + match_summary(match, announcement.map_info)
-                    )
-                except Exception:
-                    # Never let one bad post stop the analysis loop.
-                    self.logger.exception(f"Failed to publish match {match.match_id}")
-                    continue
-                if lobby.started:
-                    self._schedule_live_updates(announcement)
-                else:
-                    unstarted_announcements[lobby.match_id] = announcement
+        for lobby in lobbies:
+            if lobby.is_queue:
+                continue
+            if not any(pid in state.profile_ids for pid in lobby.profile_ids):
+                continue
+            if lobby.lobby_type not in self.config.tracked_lobby_types:
+                continue
+            if lobby.match_id in self.database.match_ids_analysed:
+                state.pending_match_ids.discard(lobby.match_id)
+                continue
+            if lobby.match_id not in state.first_seen:
+                state.first_seen[lobby.match_id] = now
+                self.logger.debug(
+                    f"Lobby {lobby.match_id} of a tracked player first seen "
+                    f"({lobby.description or 'no description'}, "
+                    f"map settled: {lobby.map_settled}, started: {lobby.started})."
+                )
+            # Matchmade games are announced as soon as the players were
+            # matched and the map is final (until then the lobby carries
+            # a provisional one), custom lobbies only once the game
+            # started.
+            if not (lobby.is_automatch and lobby.map_settled or lobby.started):
+                state.pending_match_ids.add(lobby.match_id)
+                continue
+            state.pending_match_ids.discard(lobby.match_id)
+
+            try:
+                match = await self.rlink_client.get_match_from_lobby(lobby)
+            except Exception as e:
+                self.logger.error(f"Relic Link error: {e}")
+                continue
+            match.map_name = self.map_names.name(lobby)
+            self.logger.debug(match)
+            await self._cache_match_id(int(match.match_id))
+            try:
+                announcement = await self._publish_match_analysis(
+                    match, state.profile_ids
+                )
+                seen_seconds = time.time() - state.first_seen.pop(lobby.match_id, now)
+                self.logger.info(
+                    f"Match {match.match_id} found "
+                    f"({'started' if lobby.started else 'players matched, not started yet'}, "
+                    f"first seen {seen_seconds:.0f} s before posting), "
+                    f"posted to {len(announcement.messages)} channel(s):\n"
+                    + match_summary(match, announcement.map_info)
+                )
+            except Exception:
+                # Never let one bad post stop the analysis loop.
+                self.logger.exception(f"Failed to publish match {match.match_id}")
+                continue
+            if lobby.started:
+                self._schedule_live_updates(announcement)
+            else:
+                state.unstarted_announcements[lobby.match_id] = announcement
 
     async def _update_unstarted_announcements(
         self,

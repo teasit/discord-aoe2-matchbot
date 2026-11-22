@@ -20,7 +20,32 @@ env:
 
 jobs:
 
+  # Unit tests (no Discord, Steam or Relic Link access needed). They gate the
+  # image build for PRs, pushes to main and releases alike.
+  test:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Install dependencies
+      run: uv sync --locked
+
+    - name: Run tests
+      run: uv run pytest
+
   build:
+
+    needs: test
 
     runs-on: ubuntu-latest
 

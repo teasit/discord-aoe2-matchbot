@@ -1,5 +1,8 @@
 # Age of Empires MatchBot
 
+![GitHub Release](https://img.shields.io/github/v/release/teasit/discord-aoe2-matchbot)
+![Docker Build Status](https://img.shields.io/github/actions/workflow/status/teasit/discord-aoe2-matchbot/docker-image.yml?logo=docker&label=build)
+
 Discord bot that posts Age of Empires II: DE matches of tracked players as soon as they are matched, before the game starts.
 
 | Matched, before the game starts | Live, with player numbers | Finished, with the result |
