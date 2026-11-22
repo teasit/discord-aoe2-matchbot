@@ -1,6 +1,6 @@
 [project]
 name = "discord-aoe2-matchbot"
-version = "1.0.0"
+version = "1.1.0"
 description = "Discord bot that posts Age of Empires II: DE matches of tracked players as soon as they are matched"
 readme = "README.md"
 license = "GPL-3.0-or-later"
