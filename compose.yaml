@@ -1,0 +1,9 @@
+services:
+  matchbot:
+    image: discord-aoe2-matchbot:latest
+    container_name: matchbot
+    build: .
+    restart: unless-stopped
+    volumes:
+      # cache/ and logs/ are created here; put .env and config.yaml here too.
+      - ./data:/app/data
